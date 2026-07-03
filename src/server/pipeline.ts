@@ -1,53 +1,66 @@
 import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { ingestPerson } from "@/server/x/ingest";
-import { generateSummaryForPerson } from "@/server/ai/summarize";
+import { generateBriefing } from "@/server/ai/summarize";
 import { getIngestSource } from "@/server/x/source";
 import { spendCredits } from "@/server/credits";
+import {
+  recentWindow,
+  scheduledWindow,
+  type BriefWindow,
+} from "@/server/schedule";
 import { env } from "@/lib/env";
 
 const log = createLogger("pipeline");
 
 export interface PipelineOptions {
-  date?: Date;
+  window?: BriefWindow;
   personIds?: string[];
   /** Only process people at least one user follows (default: all tracked). */
   selectedOnly?: boolean;
 }
 
-/** Run ingest + summarize for a single person. Safe to retry (idempotent). */
-export async function runPersonPipeline(personId: string, date?: Date) {
+/**
+ * Ingest fresh activity for a person over a window and generate a briefing
+ * from the notable posts in it. Safe to retry (idempotent).
+ */
+export async function runPersonPipeline(
+  personId: string,
+  window?: BriefWindow,
+) {
+  const win = window ?? recentWindow();
   const person = await prisma.trackedPerson.findUnique({
     where: { id: personId },
   });
   if (!person) return null;
 
-  const ingest = await ingestPerson({
-    id: person.id,
-    handle: person.handle,
-    name: person.name,
-    xUserId: person.xUserId,
-  });
-  const summary = await generateSummaryForPerson(person.id, {
-    date,
-    force: true,
-  });
+  const ingest = await ingestPerson(
+    {
+      id: person.id,
+      handle: person.handle,
+      name: person.name,
+      xUserId: person.xUserId,
+    },
+    { since: win.from, maxTweets: 50 },
+  );
+  const summary = await generateBriefing(person.id, win, { force: true });
 
   return { handle: person.handle, ingest, summarized: Boolean(summary) };
 }
 
 /**
- * Daily pipeline: ingest fresh activity and (re)generate summaries for the
- * given day. Records a JobRun for observability. Idempotent end to end.
+ * Scheduled pipeline: ingest + (re)generate briefings for a coverage window.
+ * Records a JobRun for observability. Idempotent end to end.
  */
 export async function runDailyPipeline(opts: PipelineOptions = {}) {
-  const date = opts.date ?? new Date();
+  const win = opts.window ?? scheduledWindow();
   const job = await prisma.jobRun.create({
     data: {
-      jobName: "daily-digest",
+      jobName: "digest",
       status: "RUNNING",
       meta: {
-        date: date.toISOString(),
+        from: win.from.toISOString(),
+        to: win.to.toISOString(),
         ingestMode: env.INGEST_MODE,
         aiProvider: env.AI_PROVIDER,
       },
@@ -69,7 +82,7 @@ export async function runDailyPipeline(opts: PipelineOptions = {}) {
     let summarized = 0;
     for (const person of people) {
       try {
-        const res = await runPersonPipeline(person.id, date);
+        const res = await runPersonPipeline(person.id, win);
         processed += 1;
         if (res?.summarized) summarized += 1;
       } catch (err) {
@@ -88,15 +101,11 @@ export async function runDailyPipeline(opts: PipelineOptions = {}) {
         status: "SUCCESS",
         finishedAt: new Date(),
         itemsProcessed: processed,
-        meta: {
-          date: date.toISOString(),
-          people: people.length,
-          summarized,
-        },
+        meta: { people: people.length, summarized },
       },
     });
 
-    log.info("daily pipeline complete", { processed, summarized });
+    log.info("pipeline complete", { processed, summarized });
     return { jobId: job.id, processed, summarized };
   } catch (err) {
     await prisma.jobRun.update({

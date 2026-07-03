@@ -199,16 +199,17 @@ export class XApiSource implements IngestSource {
       .map((t) => this.normalizeTweet(person.handle, t))
       .filter((t) => !t.isReply);
 
-    // Fetch replies for the top tweets via recent search. Each lookup is ONE
-    // API call regardless of page size, so we pull a large page (X_REPLY_PAGE,
-    // up to 100) to analyze many replies cheaply, across X_REPLY_LOOKUPS tweets.
-    const replyLookups = Math.max(0, Number(process.env.X_REPLY_LOOKUPS ?? 4));
+    // Fetch replies for the most-LIKED tweets (these become the "notable"
+    // posts). Each lookup is one API call; X_REPLY_PAGE controls how many
+    // replies we pull per call (bigger = better top-reply/sentiment, more cost).
+    const replyLookups = Math.max(0, Number(process.env.X_REPLY_LOOKUPS ?? 3));
     const replyPage = Math.min(
       100,
-      Math.max(10, Number(process.env.X_REPLY_PAGE ?? 50)),
+      Math.max(10, Number(process.env.X_REPLY_PAGE ?? 30)),
     );
+    const mostLiked = [...tweets].sort((a, b) => b.likeCount - a.likeCount);
     const replies: NormalizedReply[] = [];
-    for (const tweet of tweets.slice(0, replyLookups)) {
+    for (const tweet of mostLiked.slice(0, replyLookups)) {
       const convId = tweet.conversationId ?? tweet.xTweetId;
       try {
         const search = await this.request<{

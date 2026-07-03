@@ -219,6 +219,9 @@ model DailySummary {
   topics          String[] // key topics extracted
   highlights      Json? // { tweets: [...ids], replies: [...ids] }
   model           String? // which AI model/provider produced it
+  // The window of days this briefing covers (a briefing can span several days).
+  periodStart     DateTime?
+  periodEnd       DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

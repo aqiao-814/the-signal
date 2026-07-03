@@ -2,9 +2,15 @@ import { prisma } from "@/lib/prisma";
 import { createLogger } from "@/lib/logger";
 import { formatEditorialDate, startOfUtcDay } from "@/lib/utils";
 import { getSummarizer } from ".";
+import type { BriefWindow } from "@/server/schedule";
 import type { SummaryInput, SummaryReply } from "./types";
 
 const log = createLogger("ai:summarize");
+
+/** How many of the day(s)' posts count as "notable" (top by likes). */
+const NOTABLE_TWEETS = 3;
+/** Replies pulled per notable tweet — enough to find the top reply + read mood. */
+const REPLIES_PER_TWEET = 40;
 
 const KEYWORDS = [
   "AI",
@@ -40,21 +46,17 @@ function stanceFor(raw: unknown): string | undefined {
   return undefined;
 }
 
-export interface GenerateOptions {
-  date?: Date;
-  force?: boolean;
-}
-
 /**
- * Gather a person's activity for a day, generate an article-style summary via
- * the configured provider, and upsert it. Idempotent per (person, day).
+ * Generate a briefing for a person covering a window of days. The briefing is
+ * built from the NOTABLE activity in that window: the top-3 most-liked posts
+ * and the top reply to each. Idempotent per (person, publish day).
  */
-export async function generateSummaryForPerson(
+export async function generateBriefing(
   personId: string,
-  opts: GenerateOptions = {},
+  win: BriefWindow,
+  opts: { force?: boolean } = {},
 ) {
-  const day = startOfUtcDay(opts.date ?? new Date());
-  const nextDay = new Date(day.getTime() + 86_400_000);
+  const day = startOfUtcDay(win.publish);
 
   const person = await prisma.trackedPerson.findUnique({
     where: { id: personId },
@@ -73,40 +75,49 @@ export async function generateSummaryForPerson(
     if (existing) return existing;
   }
 
-  const tweets = await prisma.tweet.findMany({
-    where: {
-      trackedPersonId: personId,
-      isRetweet: false,
-      postedAt: { gte: day, lt: nextDay },
-    },
-    orderBy: { postedAt: "asc" },
-    include: {
-      // Pull a deep sample of replies per tweet so sentiment and themes are
-      // read from the whole conversation, not just a couple of top comments.
-      replies: { orderBy: { likeCount: "desc" }, take: 60 },
-    },
-  });
+  // Top-3 most-liked posts in the window, each with its replies (for the top
+  // reply + reading sentiment).
+  const [topTweets, totalPosts] = await Promise.all([
+    prisma.tweet.findMany({
+      where: {
+        trackedPersonId: personId,
+        isRetweet: false,
+        postedAt: { gte: win.from, lt: win.to },
+      },
+      orderBy: [{ likeCount: "desc" }],
+      take: NOTABLE_TWEETS,
+      include: {
+        replies: { orderBy: { likeCount: "desc" }, take: REPLIES_PER_TWEET },
+      },
+    }),
+    prisma.tweet.count({
+      where: {
+        trackedPersonId: personId,
+        isRetweet: false,
+        postedAt: { gte: win.from, lt: win.to },
+      },
+    }),
+  ]);
 
-  if (tweets.length === 0) {
-    log.debug("no tweets to summarize", { handle: person.handle });
+  if (topTweets.length === 0) {
+    log.debug("no posts to summarize in window", { handle: person.handle });
     return null;
   }
 
-  const notableReplies = tweets
+  const allReplies = topTweets
     .flatMap((t) => t.replies)
     .sort((a, b) => b.likeCount - a.likeCount);
+  const topReplyPerTweet = topTweets
+    .map((t) => t.replies[0])
+    .filter((r): r is NonNullable<typeof r> => Boolean(r));
 
-  // Feed a large sample to the summarizer for analysis (sentiment + themes),
-  // capped to keep prompt size sane for LLM providers.
-  const summaryReplies: SummaryReply[] = notableReplies
-    .slice(0, 60)
-    .map((r) => ({
-      authorHandle: r.authorHandle,
-      authorName: r.authorName,
-      text: r.text,
-      likeCount: r.likeCount,
-      stance: stanceFor(r.raw),
-    }));
+  const summaryReplies: SummaryReply[] = allReplies.slice(0, 60).map((r) => ({
+    authorHandle: r.authorHandle,
+    authorName: r.authorName,
+    text: r.text,
+    likeCount: r.likeCount,
+    stance: stanceFor(r.raw),
+  }));
 
   const input: SummaryInput = {
     person: {
@@ -114,8 +125,8 @@ export async function generateSummaryForPerson(
       handle: person.handle,
       title: person.title ?? "",
     },
-    editorialDate: formatEditorialDate(day),
-    tweets: tweets.map((t) => ({
+    editorialDate: formatEditorialDate(win.publish),
+    tweets: topTweets.map((t) => ({
       text: t.text,
       likeCount: t.likeCount,
       retweetCount: t.retweetCount,
@@ -126,24 +137,34 @@ export async function generateSummaryForPerson(
     })),
     replies: summaryReplies,
     metrics: {
-      tweetCount: tweets.length,
-      replyCount: notableReplies.length,
-      totalLikes: tweets.reduce((s, t) => s + t.likeCount, 0),
-      totalReplies: tweets.reduce((s, t) => s + t.replyCount, 0),
+      tweetCount: totalPosts,
+      replyCount: allReplies.length,
+      totalLikes: topTweets.reduce((s, t) => s + t.likeCount, 0),
+      totalReplies: topTweets.reduce((s, t) => s + t.replyCount, 0),
     },
   };
 
-  const summarizer = getSummarizer();
-  const result = await summarizer.summarize(input);
+  const result = await getSummarizer().summarize(input);
 
-  // Highlights: most-engaged tweets + replies for the detail page.
-  const topTweetIds = [...tweets]
-    .sort(
-      (a, b) => b.likeCount + b.retweetCount - (a.likeCount + a.retweetCount),
-    )
-    .slice(0, 4)
-    .map((t) => t.xTweetId);
-  const topReplyIds = notableReplies.slice(0, 5).map((r) => r.xTweetId);
+  const highlights = {
+    tweets: topTweets.map((t) => t.xTweetId),
+    replies: topReplyPerTweet.map((r) => r.xTweetId),
+  };
+
+  const data = {
+    headline: result.headline,
+    dek: result.dek,
+    body: result.body,
+    sentiment: result.sentiment,
+    sentimentScore: result.sentimentScore,
+    tweetCount: input.metrics.tweetCount,
+    replyCount: input.metrics.replyCount,
+    topics: result.topics,
+    highlights,
+    model: result.model,
+    periodStart: win.from,
+    periodEnd: win.to,
+  };
 
   const saved = await prisma.dailySummary.upsert({
     where: {
@@ -152,38 +173,28 @@ export async function generateSummaryForPerson(
         summaryDate: day,
       },
     },
-    create: {
-      trackedPersonId: personId,
-      summaryDate: day,
-      headline: result.headline,
-      dek: result.dek,
-      body: result.body,
-      sentiment: result.sentiment,
-      sentimentScore: result.sentimentScore,
-      tweetCount: input.metrics.tweetCount,
-      replyCount: input.metrics.replyCount,
-      topics: result.topics,
-      highlights: { tweets: topTweetIds, replies: topReplyIds },
-      model: result.model,
-    },
-    update: {
-      headline: result.headline,
-      dek: result.dek,
-      body: result.body,
-      sentiment: result.sentiment,
-      sentimentScore: result.sentimentScore,
-      tweetCount: input.metrics.tweetCount,
-      replyCount: input.metrics.replyCount,
-      topics: result.topics,
-      highlights: { tweets: topTweetIds, replies: topReplyIds },
-      model: result.model,
-    },
+    create: { trackedPersonId: personId, summaryDate: day, ...data },
+    update: data,
   });
 
-  log.info("summary generated", {
+  log.info("briefing generated", {
     handle: person.handle,
     model: result.model,
     sentiment: result.sentiment,
+    posts: totalPosts,
   });
   return saved;
+}
+
+/** Single-day briefing (used by the mock seeder). */
+export async function generateSummaryForPerson(
+  personId: string,
+  opts: { date?: Date; force?: boolean } = {},
+) {
+  const day = startOfUtcDay(opts.date ?? new Date());
+  return generateBriefing(
+    personId,
+    { from: day, to: new Date(day.getTime() + 86_400_000), publish: day },
+    { force: opts.force },
+  );
 }

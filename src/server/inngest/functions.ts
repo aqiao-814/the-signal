@@ -1,59 +1,54 @@
 import { prisma } from "@/lib/prisma";
-import { runPersonPipeline, runDailyPipeline } from "@/server/pipeline";
+import { runDailyPipeline, runPersonPipeline } from "@/server/pipeline";
+import { scheduledWindow } from "@/server/schedule";
 import { inngest } from "./client";
 
 /**
- * Scheduled daily digest. Fans out one durable step per tracked person so that
- * a failure for one person is retried independently and never blocks the rest.
- * Runs at 12:00 UTC each day.
+ * Twice-weekly digest to keep X API spend down: runs Monday and Friday at 13:00
+ * (America/Chicago). Monday covers Fri–Sun; Friday covers Mon–Thu. Fans out one
+ * durable, independently-retried step per person.
  */
-export const dailyDigest = inngest.createFunction(
-  { id: "daily-digest", name: "Daily digest" },
-  { cron: "TZ=Etc/UTC 0 12 * * *" },
+export const weeklyDigest = inngest.createFunction(
+  { id: "weekly-digest", name: "Weekly digest (Mon & Fri)" },
+  { cron: "TZ=America/Chicago 0 13 * * 1,5" },
   async ({ step }) => {
+    const win = scheduledWindow(new Date());
     const people = await step.run("load-people", async () =>
       prisma.trackedPerson.findMany({ select: { id: true, handle: true } }),
     );
 
     const results: { handle: string; summarized: boolean }[] = [];
     for (const person of people) {
-      const res = await step.run(`ingest-summarize-${person.handle}`, () =>
-        runPersonPipeline(person.id),
+      const res = await step.run(`digest-${person.handle}`, () =>
+        runPersonPipeline(person.id, win),
       );
       results.push({
         handle: person.handle,
         summarized: Boolean(res?.summarized),
       });
     }
-    return { people: people.length, results };
+    return {
+      window: { from: win.from.toISOString(), to: win.to.toISOString() },
+      results,
+    };
   },
 );
 
-/** On-demand: ingest + summarize a single person. */
+/** On-demand: refresh a single person (last 7 days). */
 export const personIngest = inngest.createFunction(
   { id: "person-ingest", name: "Person ingest" },
   { event: "app/person.ingest.requested" },
   async ({ event, step }) => {
-    const { personId, date } = event.data as {
-      personId: string;
-      date?: string;
-    };
-    return step.run("pipeline", () =>
-      runPersonPipeline(personId, date ? new Date(date) : undefined),
-    );
+    const { personId } = event.data as { personId: string };
+    return step.run("pipeline", () => runPersonPipeline(personId));
   },
 );
 
-/** On-demand: run the whole daily pipeline (e.g. triggered by an admin event). */
-export const dailyDigestOnDemand = inngest.createFunction(
-  { id: "daily-digest-on-demand", name: "Daily digest (on demand)" },
+/** On-demand: run the whole scheduled pipeline. */
+export const digestOnDemand = inngest.createFunction(
+  { id: "digest-on-demand", name: "Digest (on demand)" },
   { event: "app/daily.digest.requested" },
-  async ({ event, step }) => {
-    const { date } = (event.data ?? {}) as { date?: string };
-    return step.run("pipeline", () =>
-      runDailyPipeline({ date: date ? new Date(date) : undefined }),
-    );
-  },
+  async ({ step }) => step.run("pipeline", () => runDailyPipeline()),
 );
 
-export const functions = [dailyDigest, personIngest, dailyDigestOnDemand];
+export const functions = [weeklyDigest, personIngest, digestOnDemand];

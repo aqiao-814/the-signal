@@ -21,6 +21,7 @@ import { ReplyItem } from "@/components/reply-item";
 import { EmptyState } from "@/components/empty-state";
 import { RefreshButton } from "@/components/refresh-button";
 import { avatarUrl, profileUrl } from "@/lib/constants";
+import { coverageLabel } from "@/server/schedule";
 import { cn, formatEditorialDate } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,7 @@ export default async function PersonPage({
   const detail = await getPersonDetail(handle);
   if (!detail) notFound();
 
-  const { person, latest, tweets, notableReplies, history } = detail;
+  const { person, latest, tweets, notableReplies, history, coverage } = detail;
 
   return (
     <main className="container max-w-3xl py-8">
@@ -114,7 +115,9 @@ export default async function PersonPage({
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <SentimentBadge sentiment={latest.sentiment} />
               <span className="font-mono text-xs uppercase tracking-[0.18em] text-muted-foreground">
-                {formatEditorialDate(latest.summaryDate)}
+                {coverage
+                  ? `Covers ${coverageLabel(coverage.from, coverage.to)}`
+                  : formatEditorialDate(latest.summaryDate)}
               </span>
             </div>
             <h2 className="text-balance font-serif text-3xl font-semibold leading-tight tracking-tight">
@@ -160,9 +163,12 @@ export default async function PersonPage({
           {/* Behind the brief */}
           {tweets.length > 0 ? (
             <section className="mt-10">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Important posts
+              <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                Most-liked posts
               </h3>
+              <p className="mb-3 text-xs text-muted-foreground">
+                The top posts this briefing is built from.
+              </p>
               <div className="space-y-3">
                 {tweets.map((t) => (
                   <TweetItem

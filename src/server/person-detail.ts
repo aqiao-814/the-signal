@@ -2,7 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { startOfUtcDay } from "@/lib/utils";
 
-/** Full detail view for a tracked person: latest brief + supporting evidence. */
+/** Full detail view for a tracked person: latest briefing + supporting evidence. */
 export async function getPersonDetail(handle: string) {
   const person = await prisma.trackedPerson.findUnique({
     where: { handle },
@@ -13,35 +13,30 @@ export async function getPersonDetail(handle: string) {
   if (!person) return null;
 
   const latest = person.summaries[0] ?? null;
+  // Use the briefing's coverage window (falls back to its single day).
   const day = latest ? startOfUtcDay(latest.summaryDate) : startOfUtcDay();
-  const nextDay = new Date(day.getTime() + 86_400_000);
+  const from = latest?.periodStart ?? day;
+  const to = latest?.periodEnd ?? new Date(day.getTime() + 86_400_000);
 
-  const tweets = await prisma.tweet.findMany({
+  // The top-3 most-liked posts in the window, each with its top reply.
+  const topTweets = await prisma.tweet.findMany({
     where: {
       trackedPersonId: person.id,
       isRetweet: false,
-      postedAt: { gte: day, lt: nextDay },
+      postedAt: { gte: from, lt: to },
     },
     orderBy: [{ likeCount: "desc" }],
-    take: 6,
-    include: {
-      replies: { orderBy: { likeCount: "desc" }, take: 3 },
-    },
+    take: 3,
+    include: { replies: { orderBy: { likeCount: "desc" }, take: 1 } },
   });
 
-  // The most-liked replies across *all* of the day's posts, each carrying a
-  // reference to the post it replied to.
-  const notableReplies = await prisma.reply.findMany({
-    where: {
-      trackedPersonId: person.id,
-      tweet: { isRetweet: false, postedAt: { gte: day, lt: nextDay } },
-    },
-    orderBy: { likeCount: "desc" },
-    take: 8,
-    include: {
-      tweet: { select: { text: true, url: true, xTweetId: true } },
-    },
-  });
+  // Notable replies = the single top reply to each notable post.
+  const notableReplies = topTweets
+    .filter((t) => t.replies.length > 0)
+    .map((t) => ({
+      ...t.replies[0]!,
+      tweet: { text: t.text, url: t.url },
+    }));
 
   return {
     person: {
@@ -53,8 +48,9 @@ export async function getPersonDetail(handle: string) {
       verified: person.verified,
     },
     latest,
+    coverage: latest?.periodStart && latest?.periodEnd ? { from, to } : null,
     history: person.summaries,
-    tweets,
+    tweets: topTweets,
     notableReplies,
   };
 }

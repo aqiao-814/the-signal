@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { createLogger } from "@/lib/logger";
 import { runDailyPipeline } from "@/server/pipeline";
+import { scheduledWindow } from "@/server/schedule";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -22,7 +23,7 @@ async function handle(req: NextRequest) {
   try {
     const dateParam = req.nextUrl.searchParams.get("date");
     const result = await runDailyPipeline({
-      date: dateParam ? new Date(dateParam) : undefined,
+      window: dateParam ? scheduledWindow(new Date(dateParam)) : undefined,
     });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {

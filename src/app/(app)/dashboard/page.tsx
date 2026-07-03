@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Newspaper, Users, MessageSquare, FileText } from "lucide-react";
+import {
+  Newspaper,
+  Users,
+  MessageSquare,
+  FileText,
+  CalendarClock,
+} from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getDashboardData } from "@/server/dashboard";
 import { getCreditPool, getUserSpentUsd } from "@/server/credits";
 import { getEngineInfo } from "@/server/ai";
+import { SCHEDULE_NOTE, coverageLabel } from "@/server/schedule";
 import { NewsCard } from "@/components/news-card";
 import { RefreshButton } from "@/components/refresh-button";
 import { EmptyState } from "@/components/empty-state";
@@ -33,7 +40,7 @@ function greeting(name: string) {
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [{ cards, totals, lastUpdated }, account, pool, spentUsd] =
+  const [{ cards, totals, lastUpdated, coverage }, account, pool, spentUsd] =
     await Promise.all([
       getDashboardData(user.id),
       prisma.user.findUnique({
@@ -63,9 +70,19 @@ export default async function DashboardPage() {
               {greeting(name)} <span className="inline-block">👋</span>
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Here&apos;s what your tech leaders are saying today.
+              Here&apos;s what your tech leaders are saying.
               {lastUpdated ? (
                 <span> Updated {formatRelativeTime(lastUpdated)}.</span>
+              ) : null}
+            </p>
+            <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
+              <CalendarClock className="h-3.5 w-3.5" />
+              <span>{SCHEDULE_NOTE}.</span>
+              {coverage ? (
+                <span className="text-foreground/70">
+                  This briefing covers{" "}
+                  {coverageLabel(coverage.from, coverage.to)}.
+                </span>
               ) : null}
             </p>
           </div>

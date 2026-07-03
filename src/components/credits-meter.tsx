@@ -1,4 +1,4 @@
-import { Wallet } from "lucide-react";
+import { Wallet, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const usd = (n: number) =>
@@ -7,8 +7,9 @@ const usd = (n: number) =>
   );
 
 /**
- * Shows the money left in the shared X API account (normalized/global) and,
- * when provided, how much the current account has spent.
+ * X doesn't expose a real balance or per-call price via its API, so the number
+ * here is an app-side estimate. We link out to the X developer console where
+ * the actual usage/billing lives.
  */
 export function CreditsMeter({
   remainingUsd,
@@ -21,39 +22,30 @@ export function CreditsMeter({
   spentUsd?: number;
   className?: string;
 }) {
-  const pct =
-    totalUsd > 0
-      ? Math.max(0, Math.min(100, (remainingUsd / totalUsd) * 100))
-      : 0;
   const low = remainingUsd <= Math.max(0.01, totalUsd * 0.15);
 
   return (
-    <div
+    <a
+      href="https://console.x.com/"
+      target="_blank"
+      rel="noopener noreferrer"
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs",
+        "group inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1 text-xs transition-colors hover:border-primary/40 hover:bg-secondary/50",
         className,
       )}
-      title={`${usd(remainingUsd)} of ${usd(totalUsd)} X API budget remaining`}
+      title="Estimated X API spend — click to see real usage on the X console"
     >
       <Wallet
         className={cn("h-3.5 w-3.5", low ? "text-destructive" : "text-accent")}
       />
-      <span className="font-medium tabular-nums">{usd(remainingUsd)}</span>
+      <span className="font-medium tabular-nums">~{usd(remainingUsd)}</span>
       <span className="hidden text-muted-foreground sm:inline">
         left in X API
       </span>
-      <span className="relative h-1.5 w-10 overflow-hidden rounded-full bg-secondary">
-        <span
-          className={cn(
-            "absolute inset-y-0 left-0 rounded-full",
-            low ? "bg-destructive" : "bg-accent",
-          )}
-          style={{ width: `${pct}%` }}
-        />
-      </span>
       {typeof spentUsd === "number" && spentUsd > 0 ? (
-        <span className="text-muted-foreground">· {usd(spentUsd)} by you</span>
+        <span className="text-muted-foreground">· ~{usd(spentUsd)} by you</span>
       ) : null}
-    </div>
+      <ExternalLink className="h-3 w-3 text-muted-foreground transition-colors group-hover:text-primary" />
+    </a>
   );
 }

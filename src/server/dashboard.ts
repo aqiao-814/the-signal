@@ -29,6 +29,8 @@ export interface DashboardData {
   cards: DashboardCard[];
   totals: { people: number; tweets: number; replies: number };
   lastUpdated: Date | null;
+  /** Coverage window of the freshest briefing (for the schedule note). */
+  coverage: { from: Date; to: Date } | null;
 }
 
 /** Everything the dashboard needs for a user, in a single round of queries. */
@@ -90,5 +92,14 @@ export async function getDashboardData(userId: string): Promise<DashboardData> {
     return latest;
   }, null);
 
-  return { cards, totals, lastUpdated };
+  // Coverage window from the most recent briefing among the selected people.
+  const freshest = selections
+    .flatMap((s) => s.person.summaries)
+    .sort((a, b) => b.summaryDate.getTime() - a.summaryDate.getTime())[0];
+  const coverage =
+    freshest?.periodStart && freshest?.periodEnd
+      ? { from: freshest.periodStart, to: freshest.periodEnd }
+      : null;
+
+  return { cards, totals, lastUpdated, coverage };
 }
