@@ -29,13 +29,18 @@ export async function getPersonDetail(handle: string) {
     },
   });
 
+  // The most-liked replies across *all* of the day's posts, each carrying a
+  // reference to the post it replied to.
   const notableReplies = await prisma.reply.findMany({
     where: {
       trackedPersonId: person.id,
-      postedAt: { gte: day, lt: nextDay },
+      tweet: { isRetweet: false, postedAt: { gte: day, lt: nextDay } },
     },
     orderBy: { likeCount: "desc" },
-    take: 6,
+    take: 8,
+    include: {
+      tweet: { select: { text: true, url: true, xTweetId: true } },
+    },
   });
 
   return {

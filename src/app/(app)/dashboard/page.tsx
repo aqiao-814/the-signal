@@ -4,11 +4,13 @@ import { Newspaper, Users, MessageSquare, FileText } from "lucide-react";
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getDashboardData } from "@/server/dashboard";
-import { getCreditPool, getUserCreditsUsed } from "@/server/credits";
+import { getCreditPool, getUserSpentUsd } from "@/server/credits";
+import { getEngineInfo } from "@/server/ai";
 import { NewsCard } from "@/components/news-card";
 import { RefreshButton } from "@/components/refresh-button";
 import { EmptyState } from "@/components/empty-state";
 import { CreditsMeter } from "@/components/credits-meter";
+import { EngineBadge } from "@/components/engine-badge";
 import { StalenessBanner } from "@/components/staleness-banner";
 import { Reveal } from "@/components/motion/reveal";
 import { buttonVariants } from "@/components/ui/button";
@@ -31,7 +33,7 @@ function greeting(name: string) {
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [{ cards, totals, lastUpdated }, account, pool, creditsUsed] =
+  const [{ cards, totals, lastUpdated }, account, pool, spentUsd] =
     await Promise.all([
       getDashboardData(user.id),
       prisma.user.findUnique({
@@ -39,8 +41,9 @@ export default async function DashboardPage() {
         select: { lastRefreshedAt: true },
       }),
       getCreditPool(),
-      getUserCreditsUsed(user.id),
+      getUserSpentUsd(user.id),
     ]);
+  const engine = getEngineInfo();
 
   const name = user.name?.trim() || user.email.split("@")[0];
   // Staleness is measured from the user's last refresh, falling back to when
@@ -94,12 +97,14 @@ export default async function DashboardPage() {
               </span>
             </>
           ) : null}
-          <CreditsMeter
-            remaining={pool.remaining}
-            total={pool.total}
-            used={creditsUsed}
-            className="sm:ml-auto"
-          />
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            <EngineBadge label={engine.label} model={engine.model} />
+            <CreditsMeter
+              remainingUsd={pool.remainingUsd}
+              totalUsd={pool.totalUsd}
+              spentUsd={spentUsd}
+            />
+          </div>
         </div>
       </div>
 
@@ -124,7 +129,7 @@ export default async function DashboardPage() {
         <div className="mt-6">
           <StalenessBanner
             lastUpdated={staleFrom ? new Date(staleFrom).toISOString() : null}
-            creditsRemaining={pool.remaining}
+            creditsRemaining={pool.remainingUsd}
           />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {cards.map((card, i) => (

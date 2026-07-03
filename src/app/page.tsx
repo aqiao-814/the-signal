@@ -119,8 +119,8 @@ export default async function LandingPage() {
           </div>
           <p className="text-xs text-muted-foreground">Tracking {tracking}.</p>
           <CreditsMeter
-            remaining={pool.remaining}
-            total={pool.total}
+            remainingUsd={pool.remainingUsd}
+            totalUsd={pool.totalUsd}
             className="mt-1"
           />
         </div>

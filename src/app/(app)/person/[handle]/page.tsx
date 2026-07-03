@@ -181,9 +181,13 @@ export default async function PersonPage({
 
           {notableReplies.length > 0 ? (
             <section className="mt-10">
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
                 Notable replies
               </h3>
+              <p className="mb-3 text-xs text-muted-foreground">
+                The most-liked replies across all of {person.name}&apos;s posts
+                today.
+              </p>
               <div className="space-y-3">
                 {notableReplies.map((r) => (
                   <ReplyItem
@@ -194,6 +198,7 @@ export default async function PersonPage({
                     likeCount={r.likeCount}
                     postedAt={r.postedAt}
                     url={r.url}
+                    replyingTo={{ text: r.tweet.text, url: r.tweet.url }}
                   />
                 ))}
               </div>

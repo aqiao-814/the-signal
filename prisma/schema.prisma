@@ -26,7 +26,7 @@ model User {
   updatedAt     DateTime @updatedAt
 
   // App state
-  creditsUsed     Int       @default(0) // X API credits this account has spent
+  creditsUsed     Int       @default(0) // X API money spent by this account, in cents
   lastRefreshedAt DateTime? // last time this user refreshed their feed
 
   sessions        Session[]
@@ -244,13 +244,13 @@ model JobRun {
   @@map("job_run")
 }
 
-/// Shared X API credit budget (one row, id = "global"). Represents the pooled
-/// number of X API calls remaining, since the app talks to X with a single
-/// token. `remaining` is decremented as live calls are made.
+/// Shared X API money balance (one row, id = "global"), since the app talks to
+/// X with a single billing account. `total`/`remaining` are stored in CENTS and
+/// `remaining` is drawn down as live calls are made.
 model CreditPool {
   id        String   @id @default("global")
-  total     Int
-  remaining Int
+  total     Int // starting balance, in cents
+  remaining Int // remaining balance, in cents
   updatedAt DateTime @updatedAt
 
   @@map("credit_pool")

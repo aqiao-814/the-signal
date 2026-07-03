@@ -2,59 +2,86 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 
 /**
- * Shared X API credit budget. The app talks to X with a single token, so we
- * model a pooled number of API calls remaining (1 credit ≈ 1 X API call) and
- * decrement it as live calls are made. Also tracks per-account usage.
+ * Money left in the X API account. The app talks to X with a single billing
+ * account, so we model a shared dollar balance that is drawn down as live API
+ * calls are made (each call costs X_COST_PER_CALL_USD). Also tracks per-account
+ * spend.
  *
- * Note: X does not expose real dollar/quota balances via the API, so this is an
- * app-side budget (starting value configurable via X_CREDIT_BUDGET).
+ * X does not expose real billing via the API, so this is an app-side balance
+ * (starting value X_BUDGET_USD). Money is stored in whole cents (integers) on
+ * the CreditPool row (`total`/`remaining`) and on `User.creditsUsed`.
  */
-const BUDGET = Math.max(
+const BUDGET_CENTS = Math.max(
   0,
-  Math.round(Number(process.env.X_CREDIT_BUDGET ?? 100)),
+  Math.round(Number(process.env.X_BUDGET_USD ?? 2.77) * 100),
+);
+const COST_PER_CALL_CENTS = Math.max(
+  0,
+  Math.round(Number(process.env.X_COST_PER_CALL_USD ?? 0.03) * 100),
 );
 
-export interface CreditSnapshot {
-  total: number;
-  remaining: number;
+export interface MoneySnapshot {
+  totalUsd: number;
+  remainingUsd: number;
+  costPerCallUsd: number;
 }
 
-export async function getCreditPool(): Promise<CreditSnapshot> {
-  const pool = await prisma.creditPool.upsert({
+export async function getCreditPool(): Promise<MoneySnapshot> {
+  let pool = await prisma.creditPool.upsert({
     where: { id: "global" },
-    create: { id: "global", total: BUDGET, remaining: BUDGET },
+    create: { id: "global", total: BUDGET_CENTS, remaining: BUDGET_CENTS },
     update: {},
   });
-  return { total: pool.total, remaining: pool.remaining };
+  // Re-sync if the configured budget changed.
+  if (pool.total !== BUDGET_CENTS) {
+    pool = await prisma.creditPool.update({
+      where: { id: "global" },
+      data: { total: BUDGET_CENTS, remaining: BUDGET_CENTS },
+    });
+  }
+  return {
+    totalUsd: pool.total / 100,
+    remainingUsd: pool.remaining / 100,
+    costPerCallUsd: COST_PER_CALL_CENTS / 100,
+  };
 }
 
-/** Spend `n` credits from the global pool (and, if given, an account). */
-export async function spendCredits(n: number, userId?: string): Promise<void> {
-  const spend = Math.round(n);
-  if (!Number.isFinite(spend) || spend <= 0) return;
+/** Draw down the balance for `calls` X API calls (and, if given, an account). */
+export async function spendCredits(
+  calls: number,
+  userId?: string,
+): Promise<void> {
+  const n = Math.round(calls);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const costCents = n * COST_PER_CALL_CENTS;
+  if (costCents <= 0) return;
 
-  const pool = await getCreditPool();
-  await prisma.creditPool.update({
-    where: { id: "global" },
-    data: { remaining: Math.max(0, pool.remaining - spend) },
-  });
+  await getCreditPool(); // ensure the row exists
+  const pool = await prisma.creditPool.findUnique({ where: { id: "global" } });
+  if (pool) {
+    await prisma.creditPool.update({
+      where: { id: "global" },
+      data: { remaining: Math.max(0, pool.remaining - costCents) },
+    });
+  }
 
   if (userId) {
     await prisma.user
       .update({
         where: { id: userId },
-        data: { creditsUsed: { increment: spend } },
+        data: { creditsUsed: { increment: costCents } },
       })
       .catch(() => {
-        /* user may not exist (e.g. background job) — ignore */
+        /* user may not exist (background job) — ignore */
       });
   }
 }
 
-export async function getUserCreditsUsed(userId: string): Promise<number> {
+/** How much money (USD) this account has spent on X API calls. */
+export async function getUserSpentUsd(userId: string): Promise<number> {
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { creditsUsed: true },
   });
-  return u?.creditsUsed ?? 0;
+  return (u?.creditsUsed ?? 0) / 100;
 }
