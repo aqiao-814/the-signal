@@ -2,20 +2,113 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
+/*
+ * "The Signal" — Notion-inspired: warm, flat, paper-like and human, with a
+ * couple of friendly accents. No gradients. Light by default; a clean dark
+ * theme is available under `.dark`.
+ */
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: 40 30% 98%; /* warm paper */
+    --foreground: 30 8% 16%; /* warm near-black ink */
+
+    --card: 0 0% 100%;
+    --card-foreground: 30 8% 16%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 8% 16%;
+
+    --primary: 214 82% 52%; /* friendly techy blue */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 40 14% 94%; /* warm hover / chips */
+    --secondary-foreground: 30 8% 20%;
+
+    --muted: 40 14% 94%;
+    --muted-foreground: 35 6% 45%;
+
+    --accent: 28 88% 48%; /* warm tangerine — the "fun" pop */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 4 72% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 52% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 36 90% 44%;
+    --warning-foreground: 0 0% 100%;
+
+    --border: 40 12% 88%;
+    --input: 40 12% 86%;
+    --ring: 214 82% 52%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 30 6% 10%; /* warm charcoal */
+    --foreground: 40 12% 92%;
+
+    --card: 30 5% 13%;
+    --card-foreground: 40 12% 92%;
+
+    --popover: 30 5% 13%;
+    --popover-foreground: 40 12% 92%;
+
+    --primary: 213 90% 64%;
+    --primary-foreground: 30 10% 10%;
+
+    --secondary: 32 5% 18%;
+    --secondary-foreground: 40 12% 92%;
+
+    --muted: 32 5% 18%;
+    --muted-foreground: 40 6% 62%;
+
+    --accent: 30 90% 60%;
+    --accent-foreground: 30 10% 10%;
+
+    --destructive: 4 72% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 52% 48%;
+    --success-foreground: 30 10% 10%;
+
+    --warning: 36 90% 58%;
+    --warning-foreground: 30 10% 10%;
+
+    --border: 34 5% 22%;
+    --input: 34 5% 24%;
+    --ring: 213 90% 64%;
   }
 }
 
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  /* Notion-style text highlight — friendly + fun, no gradient. */
+  .highlight {
+    background-color: hsl(var(--accent) / 0.18);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    padding: 0.05em 0.28em;
+    border-radius: 0.3em;
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
 }

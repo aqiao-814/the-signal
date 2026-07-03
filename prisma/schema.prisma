@@ -1,0 +1,270 @@
+// Prisma schema for "The Signal" — a personalized AI tech newspaper.
+//
+// Database: PostgreSQL (served locally by an embedded PGlite instance, which
+// is a real PostgreSQL build compiled to WASM, so this schema is 100% Postgres).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Auth models (Better Auth core schema — email/password)
+// ─────────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // App state
+  creditsUsed     Int       @default(0) // X API credits this account has spent
+  lastRefreshedAt DateTime? // last time this user refreshed their feed
+
+  sessions        Session[]
+  accounts        Account[]
+  selectedPeople  SelectedPerson[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Domain models
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A tech leader the platform can track on X. Canonical, shared across users.
+model TrackedPerson {
+  id        String   @id @default(cuid())
+  handle    String   @unique // X handle without the @, lowercased
+  name      String
+  xUserId   String?  @unique // numeric X user id (populated once resolved)
+  avatarUrl String?
+  bio       String?
+  title     String? // e.g. "CEO, OpenAI"
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  selectedBy    SelectedPerson[]
+  tweets        Tweet[]
+  replies       Reply[]
+  conversations Conversation[]
+  summaries     DailySummary[]
+
+  @@index([handle])
+  @@map("tracked_person")
+}
+
+/// A user's selection of a tracked person (many-to-many join with metadata).
+model SelectedPerson {
+  id              String   @id @default(cuid())
+  userId          String
+  trackedPersonId String
+  createdAt       DateTime @default(now())
+
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person TrackedPerson @relation(fields: [trackedPersonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, trackedPersonId])
+  @@index([userId])
+  @@index([trackedPersonId])
+  @@map("selected_person")
+}
+
+/// A conversation thread on X (grouped by X conversation_id).
+model Conversation {
+  id              String   @id @default(cuid())
+  xConversationId String   @unique
+  trackedPersonId String
+  rootTweetXId    String?
+  tweetCount      Int      @default(0)
+  replyCount      Int      @default(0)
+  lastActivityAt  DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  person  TrackedPerson @relation(fields: [trackedPersonId], references: [id], onDelete: Cascade)
+  tweets  Tweet[]
+  replies Reply[]
+
+  @@index([trackedPersonId])
+  @@map("conversation")
+}
+
+/// A tweet authored by a tracked person.
+model Tweet {
+  id              String   @id @default(cuid())
+  xTweetId        String   @unique // idempotency key — dedupes ingestion
+  trackedPersonId String
+  conversationId  String?
+  authorHandle    String
+  text            String
+  lang            String?
+  likeCount       Int      @default(0)
+  retweetCount    Int      @default(0)
+  replyCount      Int      @default(0)
+  quoteCount      Int      @default(0)
+  viewCount       Int      @default(0)
+  isReply         Boolean  @default(false)
+  isRetweet       Boolean  @default(false)
+  url             String?
+  postedAt        DateTime
+  raw             Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  person       TrackedPerson @relation(fields: [trackedPersonId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  replies      Reply[]
+
+  @@index([trackedPersonId, postedAt])
+  @@index([conversationId])
+  @@map("tweet")
+}
+
+/// A notable reply to a tracked person's tweet.
+model Reply {
+  id              String   @id @default(cuid())
+  xTweetId        String   @unique
+  tweetId         String
+  conversationId  String?
+  trackedPersonId String
+  authorHandle    String
+  authorName      String?
+  text            String
+  likeCount       Int      @default(0)
+  replyCount      Int      @default(0)
+  url             String?
+  postedAt        DateTime
+  raw             Json?
+  createdAt       DateTime @default(now())
+
+  tweet        Tweet         @relation(fields: [tweetId], references: [id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  person       TrackedPerson @relation(fields: [trackedPersonId], references: [id], onDelete: Cascade)
+
+  @@index([tweetId])
+  @@index([trackedPersonId, postedAt])
+  @@map("reply")
+}
+
+/// A generated, article-style daily summary for one tracked person on one day.
+/// Shared across all users who follow that person (computed once per day).
+model DailySummary {
+  id              String   @id @default(cuid())
+  trackedPersonId String
+  summaryDate     DateTime @db.Date
+  headline        String
+  body            String // the article prose
+  dek             String? // short standfirst / subtitle
+  sentiment       Sentiment @default(NEUTRAL)
+  sentimentScore  Float? // -1..1
+  tweetCount      Int      @default(0)
+  replyCount      Int      @default(0)
+  topics          String[] // key topics extracted
+  highlights      Json? // { tweets: [...ids], replies: [...ids] }
+  model           String? // which AI model/provider produced it
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  person TrackedPerson @relation(fields: [trackedPersonId], references: [id], onDelete: Cascade)
+
+  @@unique([trackedPersonId, summaryDate])
+  @@index([summaryDate])
+  @@map("daily_summary")
+}
+
+/// Bookkeeping for background jobs — idempotency, observability, retries.
+model JobRun {
+  id             String    @id @default(cuid())
+  jobName        String
+  status         JobStatus @default(RUNNING)
+  startedAt      DateTime  @default(now())
+  finishedAt     DateTime?
+  itemsProcessed Int       @default(0)
+  error          String?
+  meta           Json?
+
+  @@index([jobName, startedAt])
+  @@map("job_run")
+}
+
+/// Shared X API credit budget (one row, id = "global"). Represents the pooled
+/// number of X API calls remaining, since the app talks to X with a single
+/// token. `remaining` is decremented as live calls are made.
+model CreditPool {
+  id        String   @id @default("global")
+  total     Int
+  remaining Int
+  updatedAt DateTime @updatedAt
+
+  @@map("credit_pool")
+}
+
+enum Sentiment {
+  POSITIVE
+  NEUTRAL
+  NEGATIVE
+  MIXED
+}
+
+enum JobStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+}
