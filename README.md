@@ -5,8 +5,7 @@ A mobile-first web app that reads what influential tech leaders are posting on
 story, the conversation it sparked, the most notable replies, and the overall
 sentiment. Think of it as a personalized, AI-powered technology newspaper.
 
-It currently follows **Elon Musk** and **Sam Altman** (you pick who to follow
-during onboarding), and reads with a clean, Notion-style light UI.
+It currently follows **Elon Musk** and/or **Sam Altman**, and reads with a clean, Notion-style light UI.
 
 Built with **Next.js 15** (App Router, React Server Components, Server Actions),
 TypeScript, Tailwind + shadcn-style UI, Framer Motion, Prisma + PostgreSQL,
@@ -29,17 +28,6 @@ Then open **http://localhost:3000**.
 2. applies Prisma migrations,
 3. seeds the tracked leaders + briefings so there's content immediately,
 4. runs the database and the Next.js dev server together.
-
-### Demo account
-
-A demo user is seeded so you can log in right away:
-
-- **Email:** `demo@thesignal.app`
-- **Password:** `demo12345`
-
-Or register a new account in a few seconds.
-
----
 
 ## How briefings work
 
