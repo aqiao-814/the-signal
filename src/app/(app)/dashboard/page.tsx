@@ -10,9 +10,8 @@ import {
 import { requireUser } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getDashboardData } from "@/server/dashboard";
-import { getCreditPool, getUserSpentUsd } from "@/server/credits";
 import { getEngineInfo } from "@/server/ai";
-import { SCHEDULE_NOTE, coverageLabel } from "@/server/schedule";
+import { REFRESH_NOTE, coverageLabel } from "@/server/schedule";
 import { NewsCard } from "@/components/news-card";
 import { RefreshButton } from "@/components/refresh-button";
 import { EmptyState } from "@/components/empty-state";
@@ -40,16 +39,15 @@ function greeting(name: string) {
 
 export default async function DashboardPage() {
   const user = await requireUser();
-  const [{ cards, totals, lastUpdated, coverage }, account, pool, spentUsd] =
-    await Promise.all([
+  const [{ cards, totals, lastUpdated, coverage }, account] = await Promise.all(
+    [
       getDashboardData(user.id),
       prisma.user.findUnique({
         where: { id: user.id },
         select: { lastRefreshedAt: true },
       }),
-      getCreditPool(),
-      getUserSpentUsd(user.id),
-    ]);
+    ],
+  );
   const engine = getEngineInfo();
 
   const name = user.name?.trim() || user.email.split("@")[0];
@@ -77,7 +75,7 @@ export default async function DashboardPage() {
             </p>
             <p className="mt-2 inline-flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
               <CalendarClock className="h-3.5 w-3.5" />
-              <span>{SCHEDULE_NOTE}.</span>
+              <span>{REFRESH_NOTE}.</span>
               {coverage ? (
                 <span className="text-foreground/70">
                   This briefing covers{" "}
@@ -116,11 +114,7 @@ export default async function DashboardPage() {
           ) : null}
           <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
             <EngineBadge label={engine.label} model={engine.model} />
-            <CreditsMeter
-              remainingUsd={pool.remainingUsd}
-              totalUsd={pool.totalUsd}
-              spentUsd={spentUsd}
-            />
+            <CreditsMeter />
           </div>
         </div>
       </div>
@@ -146,7 +140,6 @@ export default async function DashboardPage() {
         <div className="mt-6">
           <StalenessBanner
             lastUpdated={staleFrom ? new Date(staleFrom).toISOString() : null}
-            creditsRemaining={pool.remainingUsd}
           />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
             {cards.map((card, i) => (

@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowRight, Newspaper, Sparkles, Zap, Radar } from "lucide-react";
 import { getSession } from "@/lib/session";
-import { getCreditPool } from "@/server/credits";
 import { Logo } from "@/components/logo";
 import { CreditsMeter } from "@/components/credits-meter";
 import { Avatar } from "@/components/ui/avatar";
@@ -39,7 +38,6 @@ export default async function LandingPage() {
   const session = await getSession();
   if (session?.user) redirect("/dashboard");
 
-  const pool = await getCreditPool();
   const faces = RECOMMENDED_PEOPLE.slice(0, 7);
   const names = RECOMMENDED_PEOPLE.map((p) => p.name.split(" ").pop());
   const tracking =
@@ -118,11 +116,7 @@ export default async function LandingPage() {
             ))}
           </div>
           <p className="text-xs text-muted-foreground">Tracking {tracking}.</p>
-          <CreditsMeter
-            remainingUsd={pool.remainingUsd}
-            totalUsd={pool.totalUsd}
-            className="mt-1"
-          />
+          <CreditsMeter className="mt-1" />
         </div>
       </section>
 

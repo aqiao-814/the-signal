@@ -84,16 +84,18 @@ the model output can't be parsed — so summaries never fail.
 
 ### ⚠️ Live X API costs (metered tiers)
 
-Live mode makes real API calls. Per person, per refresh:
-**`1` (timeline) + `X_REPLY_LOOKUPS` (reply searches)**. Defaults keep this small:
+X bills **per post retrieved**, so cost scales with reply volume. Per person, per
+refresh: **`1` (timeline) + `X_REPLY_LOOKUPS` (reply searches × `X_REPLY_PAGE`
+posts)**. Defaults keep this small:
 
-- `X_REPLY_LOOKUPS=2` — reply lookups per person (set `0` for timeline-only).
+- `X_REPLY_LOOKUPS=3` — reply lookups for the top-liked posts (set `0` to skip).
+- `X_REPLY_PAGE=30` — replies pulled per lookup.
 - `X_RATE_PER_MIN=50` — client request budget.
 
-The database is already seeded with **real X data**, and `npm run dev` does **not**
-call the X API when summaries already exist. New calls happen only when you click
-**Refresh feed**, run the daily job, or `npm run db:reset`. To spend nothing, set
-`INGEST_MODE="mock"`.
+**Nothing refreshes automatically.** The DB is seeded with **real X data**, and
+`npm run dev` makes **no** X calls when summaries already exist. Live calls happen
+only when you tap **Refresh** (or trigger `/api/cron/daily` / `npm run db:reset`).
+To spend nothing at all, set `INGEST_MODE="mock"`.
 
 ---
 
@@ -122,17 +124,21 @@ call the X API when summaries already exist. New calls happen only when you clic
   latest brief headline, sentiment, topics, and post/reply counts.
 - **Detail page** — full AI brief written like a news article, plus the
   important posts and notable replies behind it, with links back to X.
+- **On-demand refresh (no auto-spend)** — there is intentionally **no scheduled
+  job**. Refreshing hits the live X API and costs money, so it only happens when
+  you tap **Refresh** (great for demos, controlled spend). Each refresh ingests
+  the window's **top-3 most-liked posts + the top reply to each** and regenerates
+  the briefing.
 - **Freshness prompt** — a "new day, want to refresh?" banner appears once a new
-  local calendar day has passed since your last update (and stands down when
-  you're out of X credits, since a refresh wouldn't help).
-- **Credits meter** — a shared X API budget (normalized for guests) plus
-  per-account usage, decremented as live calls are made.
+  local calendar day has passed since your last update.
+- **Credits meter** — X exposes no real balance/price via API, so the meter is a
+  link to the X console (`https://console.x.com/`) where the real usage lives.
 - **Ingestion** — batching, in-memory caching, token-bucket rate limiting,
   exponential backoff with `Retry-After`, and idempotent upserts (dedupe by X
   id). Never spams the API.
-- **Background jobs** — Inngest daily cron (`0 12 * * *` UTC) that fans out one
-  durable, independently-retried step per person. Also a protected cron endpoint
-  (`/api/cron/daily`) and an on-demand "Refresh feed" server action.
+- **Background jobs** — Inngest wires **on-demand** functions (single-person and
+  full-pipeline) plus a protected `/api/cron/daily` endpoint you trigger
+  yourself. No automatic cron.
 - **AI layer** — provider-agnostic `Summarizer` interface; providers swap via
   env; malformed model output falls back to the template writer so summaries
   never fail.

@@ -1,15 +1,12 @@
 import { startOfUtcDay } from "@/lib/utils";
 
 /**
- * Auto-refresh schedule. To keep X API spend down, briefings are refreshed
- * twice a week instead of daily:
- *
- *   • Monday  → covers Fri, Sat, Sun (the weekend)
- *   • Friday  → covers Mon, Tue, Wed, Thu (the work week)
- *
- * Each run pulls the notable activity from the days it covers.
+ * Refreshing hits the live X API and costs money, so there is no automatic
+ * schedule — briefings only update when someone taps Refresh. These helpers
+ * still describe the window a refresh covers.
  */
-export const SCHEDULE_NOTE = "Auto-refreshes Mondays & Fridays";
+export const REFRESH_NOTE =
+  "Refreshes on demand — tap Refresh to pull the latest";
 
 export interface BriefWindow {
   /** Inclusive start of the covered period. */
